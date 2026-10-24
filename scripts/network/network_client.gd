@@ -33,6 +33,7 @@ signal movement_tick_received(payload: Dictionary)
 signal visibility_update_received(payload: Dictionary)
 signal target_sync_received(payload: Dictionary)
 signal combat_shots_received(payload: Dictionary)
+signal combat_status_received(payload: Dictionary)
 
 var _socket := WebSocketPeer.new()
 var _connected := false
@@ -413,6 +414,8 @@ func _handle_message(message: Dictionary) -> void:
 			target_sync_received.emit(message)
 		"combat_shots":
 			combat_shots_received.emit(message)
+		"combat_status":
+			combat_status_received.emit(message)
 		_:
 			GameLog.log_system("[NetworkClient] Unhandled message type: %s" % msg_type)
 

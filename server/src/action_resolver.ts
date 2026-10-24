@@ -12,6 +12,7 @@ import { combatRange } from "./hit_resolution";
 import { canAssignManualPriority, canSpot } from "./perception";
 import { findPath } from "./pathfinder";
 import type { SoldierState } from "./soldier_state";
+import { isPanicked, movementModifier } from "./stress_accuracy";
 import {
   FIRE_AT_WILL,
   FIRE_HOLD,
@@ -307,7 +308,7 @@ function assignMovePath(
     soldier.clearPath();
   }
   soldier.movementMode = mode;
-  const speedMult = speedMultiplier(mode);
+  const speedMult = speedMultiplier(mode) * movementModifier(soldier.stress);
   soldier.assignPath(path, speedMult);
   pushMoveOrder(result, soldier, path, speedMult);
   return true;
@@ -367,7 +368,7 @@ function assignTranslatedSquadPath(
     soldier.clearPath();
   }
   soldier.movementMode = mode;
-  const speedMult = speedMultiplier(mode);
+  const speedMult = speedMultiplier(mode) * movementModifier(soldier.stress);
   soldier.assignPath(path, speedMult);
   pushMoveOrder(result, soldier, path, speedMult);
   return true;
@@ -689,6 +690,10 @@ export function executeFireAt(
       firstNotice = firstNotice || "Soldier is stunned and cannot fire.";
       continue;
     }
+    if (isPanicked(shooter.stress)) {
+      firstNotice = firstNotice || "Soldier is panicked and ignores the order.";
+      continue;
+    }
     if (!canAssignManualPriority(shooter, target, gameState, cmd.targetCell ?? target.gridPosition)) {
       continue;
     }
@@ -762,6 +767,10 @@ function executeFireAtFaceOnly(
     }
     if (shooter.isStunned(now)) {
       firstNotice = firstNotice || "Soldier is stunned and cannot fire.";
+      continue;
+    }
+    if (isPanicked(shooter.stress)) {
+      firstNotice = firstNotice || "Soldier is panicked and ignores the order.";
       continue;
     }
     haltSoldierIfMoving(shooter, result);

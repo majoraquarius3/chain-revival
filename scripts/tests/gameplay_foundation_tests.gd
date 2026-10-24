@@ -64,6 +64,7 @@ func _ready() -> void:
 	_test_smg_vs_rifle_range_falloff()
 	_test_grenade_range_cap()
 	_test_stress_model()
+	_test_phase7_shared_parity_fixtures()
 	_test_fixed_simulation_tick()
 	_test_movement_frame_rate_independence()
 	_test_object_id_and_registry()
@@ -78,6 +79,64 @@ func _ready() -> void:
 	print("")
 	print("Gameplay foundation tests: %d passed, %d failed" % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
+
+
+func _test_phase7_shared_parity_fixtures() -> void:
+	var path := "res://assets/data/combat_phase7_parity.json"
+	var file := FileAccess.open(path, FileAccess.READ)
+	_assert("Phase 7 parity fixture opens", file != null)
+	if file == null:
+		return
+	var fixture: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	_assert("Phase 7 parity fixture parses", fixture is Dictionary)
+	if not fixture is Dictionary:
+		return
+	for raw in fixture.get("base_accuracy", []):
+		var entry: Dictionary = raw
+		var weapon = GameplayPolicies.weapons.create_weapon(str(entry.weapon_id))
+		var actual := CombatSystemClass.hit_chance(
+			Vector2i.ZERO,
+			Vector2i(int(entry.range), 0),
+			weapon,
+		)
+		_assert(
+			"Phase 7 base parity %s@%s" % [entry.weapon_id, entry.range],
+			is_equal_approx(actual, float(entry.expected)),
+		)
+	for raw in fixture.get("stress_accuracy", []):
+		var entry: Dictionary = raw
+		var actual := GameplayPolicies.suppression.accuracy_modifier_for(
+			float(entry.stress),
+			int(entry.range),
+			float(entry.aim_factor),
+		)
+		_assert(
+			"Phase 7 stress parity %s/%s" % [entry.stress, entry.aim_factor],
+			is_equal_approx(actual, float(entry.expected)),
+		)
+	for raw in fixture.get("suppression_gain", []):
+		var entry: Dictionary = raw
+		var actual := GameplayPolicies.suppression.range_suppression_gain_runtime(
+			float(entry.stress_factor),
+			float(entry.limit),
+			int(entry.range),
+		)
+		_assert(
+			"Phase 7 suppression parity %s@%s" % [entry.stress_factor, entry.range],
+			is_equal_approx(actual, float(entry.expected)),
+		)
+	for raw in fixture.get("decay", []):
+		var entry: Dictionary = raw
+		var actual := GameplayPolicies.suppression.apply_stress_decay(
+			float(entry.stress),
+			bool(entry.prone),
+			float(entry.delta_sec),
+		)
+		_assert(
+			"Phase 7 decay parity prone=%s" % entry.prone,
+			is_equal_approx(actual, float(entry.expected)),
+		)
 
 
 func _bootstrap() -> void:

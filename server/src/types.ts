@@ -68,6 +68,9 @@ export interface SoldierSnapshot {
   ammoCurrent: number;
   fireReadyAfterMsec: number;
   lastShotMsec: number;
+  stress: number;
+  stunnedUntilMsec: number;
+  standOnStunRecovery: boolean;
   deathSpriteFamily: string;
   stanceAtDeath: number;
 }
@@ -291,6 +294,31 @@ export interface CombatShotsPayload {
   simMsec: number;
   tickId: number;
   shots: CombatShotPayload[];
+}
+
+export interface CombatStatusUpdate {
+  teamId: number;
+  soldierId: number;
+  stress: number;
+  stressBand: number;
+  receivedSuppression: boolean;
+  stunnedUntilMsec: number;
+  isStunned: boolean;
+  standOnStunRecovery: boolean;
+  positionState: number;
+  movementMode: number;
+  isMoving: boolean;
+  engagedTargetTeamId: number;
+  engagedTargetSoldierId: number;
+  sustainedFire: boolean;
+}
+
+export interface CombatStatusPayload {
+  type: "combat_status";
+  matchId: string;
+  simMsec: number;
+  tickId: number;
+  updates: CombatStatusUpdate[];
 }
 
 export interface FireAtResultPayload {

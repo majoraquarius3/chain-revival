@@ -3,6 +3,7 @@ import { GameRandom } from "./game_random";
 import { defaultRifleForTeam, getWeapon } from "./weapons";
 import {
   FIRE_AT_WILL,
+  MOVEMENT_CRAWL,
   MOVEMENT_RUN,
   POSITION_DOWN,
   POSITION_UP,
@@ -45,6 +46,8 @@ export class SoldierState {
   ammoMax = 0;
   marksman = 0;
   stress = 0;
+  receivedSuppressionThisTick = false;
+  standOnStunRecovery = false;
   stanceAtDeath = POSITION_UP;
   deathSpriteFamily = "";
   private readonly lastSeen = new Map<string, { msec: number; cell: Vec2i }>();
@@ -71,6 +74,44 @@ export class SoldierState {
 
   isStunned(nowMsec: number): boolean {
     return nowMsec < this.stunnedUntilMsec;
+  }
+
+  applyStun(nowMsec: number, durationSec = 4): void {
+    if (this.isDead) {
+      return;
+    }
+    this.stunnedUntilMsec = nowMsec + Math.trunc(Math.max(durationSec, 0) * 1000);
+    this.clearPath();
+    this.endSustainedFire();
+    this.resetFirePrep();
+  }
+
+  /** Shared authoritative hook for the later grenade phase. */
+  applyGrenadeStun(nowMsec: number, durationSec = 6): void {
+    if (this.isDead) {
+      return;
+    }
+    this.stunnedUntilMsec = nowMsec + Math.trunc(Math.max(durationSec, 0) * 1000);
+    this.positionState = POSITION_DOWN;
+    this.movementMode = MOVEMENT_CRAWL;
+    this.clearPendingPosition();
+    this.standOnStunRecovery = true;
+    this.clearPath();
+    this.endSustainedFire();
+    this.resetFirePrep();
+  }
+
+  recoverFromStunIfExpired(nowMsec: number): boolean {
+    if (this.isDead || this.isStunned(nowMsec) || !this.standOnStunRecovery) {
+      return false;
+    }
+    this.standOnStunRecovery = false;
+    if (this.positionState !== POSITION_DOWN) {
+      return false;
+    }
+    this.clearPendingPosition();
+    this.positionState = POSITION_UP;
+    return true;
   }
 
   clearPendingPosition(): void {
@@ -166,6 +207,8 @@ export class SoldierState {
     this.positionState = POSITION_DOWN;
     this.clearPendingPosition();
     this.stunnedUntilMsec = 0;
+    this.standOnStunRecovery = false;
+    this.receivedSuppressionThisTick = false;
     this.clearPath();
     this.endSustainedFire();
     this.resetFirePrep();
@@ -215,6 +258,9 @@ export class SoldierState {
       ammoCurrent: this.ammoCurrent,
       fireReadyAfterMsec: this.fireReadyAfterMsec,
       lastShotMsec: this.lastShotMsec,
+      stress: this.stress,
+      stunnedUntilMsec: this.stunnedUntilMsec,
+      standOnStunRecovery: this.standOnStunRecovery,
       deathSpriteFamily: this.deathSpriteFamily,
       stanceAtDeath: this.stanceAtDeath,
     };

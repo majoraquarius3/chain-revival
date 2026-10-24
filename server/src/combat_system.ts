@@ -1,7 +1,4 @@
-/**
- * Authoritative aim / fire / kill — port of CombatSystem resolve_shot + combat tick.
- * Suppression gain/decay and grenades are not applied.
- */
+/** Authoritative aim, fire, hit/death, suppression, recovery, and stun scan. */
 
 import type { GameState } from "./game_state";
 import { towardCell } from "./facing";
@@ -22,12 +19,27 @@ import {
   TARGET_LOST_GRACE_MSEC,
 } from "./perception";
 import type { SoldierState } from "./soldier_state";
-import { fireDelayModifier } from "./stress_accuracy";
-import { FIRE_AT_WILL, type CombatShotPayload, type Vec2i } from "./types";
+import {
+  decayStress,
+  fireDelayModifier,
+  MAX_STRESS,
+  MODERATE_COVER_SUPPRESSION_MULT,
+  PRONE_SUPPRESSION_MULT,
+  stressBand,
+  suppressionGain,
+} from "./stress_accuracy";
+import {
+  FIRE_AT_WILL,
+  POSITION_DOWN,
+  type CombatShotPayload,
+  type CombatStatusUpdate,
+  type Vec2i,
+} from "./types";
 import { ammoCost, effectiveWeaponRange } from "./weapons";
 
 export interface CombatTickResult {
   shots: CombatShotPayload[];
+  statusUpdates: CombatStatusUpdate[];
 }
 
 export { beginFirePrep } from "./fire_prep";
@@ -61,7 +73,7 @@ export function resolveShot(
   autoEngagement: boolean,
 ): CombatShotPayload {
   const shot = emptyShot(state, shooter, target);
-  if (shooter.isDead || shooter.isMoving) {
+  if (shooter.isDead || shooter.isMoving || shooter.isStunned(state.clock.getTicksMsec())) {
     return shot;
   }
   if (!isFirePrepComplete(state, shooter)) {
@@ -119,6 +131,8 @@ export function resolveShot(
   shot.tracerCount = weapon.tracerCount;
   shot.ammoCurrent = shooter.ammoCurrent;
   shot.fireReadyAfterMsec = shooter.fireReadyAfterMsec;
+
+  applySuppressionFromShot(shooter, target, weapon, los);
 
   if (los.targetUsingWallCover) {
     shot.hadCover = true;
@@ -220,6 +234,10 @@ export function tryAutoEngagement(state: GameState, shooter: SoldierState): Comb
 }
 
 export function processCombatTick(state: GameState): CombatTickResult {
+  const before = new Map(state.soldiers.map((soldier) => [statusKey(soldier), statusSnapshot(soldier, state.clock.getTicksMsec())]));
+  for (const soldier of state.soldiers) {
+    soldier.receivedSuppressionThisTick = false;
+  }
   const shots: CombatShotPayload[] = [];
   for (const shooter of state.soldiers) {
     if (!shooter.sustainedFire) {
@@ -239,7 +257,42 @@ export function processCombatTick(state: GameState): CombatTickResult {
       shots.push(shot);
     }
   }
-  return { shots };
+  for (const soldier of state.soldiers) {
+    if (!soldier.isDead && soldier.stress > 0 && !soldier.receivedSuppressionThisTick) {
+      soldier.stress = decayStress(soldier.stress, soldier.positionState === POSITION_DOWN, 0.5);
+    }
+    soldier.recoverFromStunIfExpired(state.clock.getTicksMsec());
+  }
+  const statusUpdates = state.soldiers
+    .map((soldier) => statusSnapshot(soldier, state.clock.getTicksMsec()))
+    .filter((status) => !statusEqual(before.get(`${status.teamId}:${status.soldierId}`), status));
+  return { shots, statusUpdates };
+}
+
+export function applySuppressionFromShot(
+  shooter: SoldierState,
+  target: SoldierState,
+  weapon: NonNullable<ReturnType<typeof weaponFor>>,
+  los: ReturnType<typeof evaluate>,
+): number {
+  if (shooter.isDead || target.isDead || los.status === LOS_BLOCKED) {
+    return 0;
+  }
+  const roundedRange = Math.round(combatRange(shooter.gridPosition, target.gridPosition));
+  let gain = suppressionGain(weapon.suppressionGenerated, weapon.stressLimitTiles, roundedRange);
+  if (los.coverType === COVER_MODERATE) {
+    gain *= MODERATE_COVER_SUPPRESSION_MULT;
+  }
+  if (target.positionState === POSITION_DOWN) {
+    gain *= PRONE_SUPPRESSION_MULT;
+  }
+  if (gain <= 0) {
+    return 0;
+  }
+  const before = target.stress;
+  target.stress = clamp(target.stress + gain, 0, MAX_STRESS);
+  target.receivedSuppressionThisTick = true;
+  return target.stress - before;
 }
 
 function resolveEngagedTarget(
@@ -305,11 +358,48 @@ function applyKill(
     if (other.engagedTargetTeamId === target.teamId && other.engagedTargetSoldierId === target.soldierId) {
       other.clearEngagedTarget();
       other.resetFirePrep();
-      if (other !== shooter) {
-        other.endSustainedFire();
-      }
+      other.endSustainedFire();
     }
   }
+}
+
+function statusKey(soldier: SoldierState): string {
+  return `${soldier.teamId}:${soldier.soldierId}`;
+}
+
+function statusSnapshot(soldier: SoldierState, nowMsec: number): CombatStatusUpdate {
+  return {
+    teamId: soldier.teamId,
+    soldierId: soldier.soldierId,
+    stress: soldier.stress,
+    stressBand: stressBand(soldier.stress),
+    receivedSuppression: soldier.receivedSuppressionThisTick,
+    stunnedUntilMsec: soldier.stunnedUntilMsec,
+    isStunned: soldier.isStunned(nowMsec),
+    standOnStunRecovery: soldier.standOnStunRecovery,
+    positionState: soldier.positionState,
+    movementMode: soldier.movementMode,
+    isMoving: soldier.isMoving,
+    engagedTargetTeamId: soldier.engagedTargetTeamId,
+    engagedTargetSoldierId: soldier.engagedTargetSoldierId,
+    sustainedFire: soldier.sustainedFire,
+  };
+}
+
+function statusEqual(a: CombatStatusUpdate | undefined, b: CombatStatusUpdate): boolean {
+  return a !== undefined &&
+    a.stress === b.stress &&
+    a.stressBand === b.stressBand &&
+    a.receivedSuppression === b.receivedSuppression &&
+    a.stunnedUntilMsec === b.stunnedUntilMsec &&
+    a.isStunned === b.isStunned &&
+    a.standOnStunRecovery === b.standOnStunRecovery &&
+    a.positionState === b.positionState &&
+    a.movementMode === b.movementMode &&
+    a.isMoving === b.isMoving &&
+    a.engagedTargetTeamId === b.engagedTargetTeamId &&
+    a.engagedTargetSoldierId === b.engagedTargetSoldierId &&
+    a.sustainedFire === b.sustainedFire;
 }
 
 function emptyShot(state: GameState, shooter: SoldierState, target: SoldierState): CombatShotPayload {
