@@ -153,6 +153,17 @@ func _evaluate(game_state: GameState, query: Dictionary) -> Dictionary:
 				game_state, shooter, target, WeaponRegistry.get_weapon(shooter.weapon_id), los
 			)
 			return {"gain": snappedf(target.stress - before, 0.01)}
+		"stress_decay":
+			return {
+				"stress": snappedf(
+					GameplayPolicies.suppression.apply_stress_decay(
+						float(query.get("stress", 0.0)),
+						bool(query.get("prone", false)),
+						float(query.get("deltaSec", 0.0)),
+					),
+					0.0001,
+				),
+			}
 		"grenade":
 			## Kills use different RNGs on each side; force every hit to a stun.
 			GameplayPolicies.hit.lethality_multiplier = 0.0

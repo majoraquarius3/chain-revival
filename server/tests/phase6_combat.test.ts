@@ -378,7 +378,7 @@ test("both-client combat payload is a delta not a full GameState", () => {
 });
 
 test("lethality is applied to hit chance", () => {
-  assert.equal(LETHALITY_MULTIPLIER, 0.9);
+  assert.equal(LETHALITY_MULTIPLIER, 0.6);
 });
 
 test("prone shooter and target change final hit chance", () => {

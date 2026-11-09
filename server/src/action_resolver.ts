@@ -790,6 +790,10 @@ function executeFireAtFaceOnly(
       firstNotice = firstNotice || "Soldier is stunned and cannot fire.";
       continue;
     }
+    if (isStressPanicked(shooter.stress)) {
+      firstNotice = firstNotice || "Soldier is panicked and ignores the order.";
+      continue;
+    }
     haltSoldierIfMoving(shooter, result);
     if (shooter.sustainedFire) {
       shooter.endSustainedFire();

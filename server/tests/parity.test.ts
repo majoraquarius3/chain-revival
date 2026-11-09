@@ -13,6 +13,7 @@ import { coverCheck, cornerWatchFacing, evaluate } from "../src/los";
 import { MapData } from "../src/map_data";
 import { scoreAutoTarget } from "../src/perception";
 import type { SoldierState } from "../src/soldier_state";
+import { applyStressDecay } from "../src/stress_accuracy";
 import { POSITION_DOWN, POSITION_UP, TEAM_GERMANY, TEAM_USA, vec, type Vec2i } from "../src/types";
 import { getWeapon } from "../src/weapons";
 
@@ -132,6 +133,13 @@ function evaluateQuery(state: GameState, q: Fixture["query"]): Record<string, un
       applySuppressionFromShot(state, s, t, los);
       return { gain: round(t.stress - before, 2) };
     }
+    case "stress_decay":
+      return {
+        stress: round(
+          applyStressDecay(Number(q.stress), Boolean(q.prone), Number(q.deltaSec)),
+          4,
+        ),
+      };
     case "grenade": {
       // Kills use different RNGs on each side; force every hit to a stun.
       state.rng.forceChance = false;

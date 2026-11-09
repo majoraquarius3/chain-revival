@@ -4,9 +4,11 @@ import { test } from "node:test";
 import type { WebSocket } from "ws";
 import { beginFirePrep, resolveShot } from "../src/combat_system";
 import { GameState } from "../src/game_state";
+import { LETHALITY_MULTIPLIER } from "../src/hit_resolution";
 import { DEPLOYMENT_FIRE_LOCKED_MSG, DEPLOYMENT_GRENADE_LOCKED_MSG, LocalMatch } from "../src/match";
 import { MapData } from "../src/map_data";
 import { MATCH_ID, MOVE_SCOPE_SINGLE, TEAM_GERMANY, TEAM_USA, vec } from "../src/types";
+import { effectiveWeaponRange, getWeapon } from "../src/weapons";
 
 type Msg = Record<string, unknown> & { type: string };
 
@@ -104,6 +106,36 @@ test("Fire At is refused during deployment", () => {
   assert.equal(reply.success, false);
   assert.equal(reply.statusMessage, DEPLOYMENT_FIRE_LOCKED_MSG);
   assert.equal(match.gameState.getSoldier(TEAM_USA, 1)!.isEngaged(), false);
+});
+
+test("panicked soldier refuses face-only Fire At without changing facing", () => {
+  const { match, ws } = usaClient(false);
+  const soldier = match.gameState.getSoldier(TEAM_USA, 1)!;
+  soldier.stress = 70;
+  const facingBefore = { ...soldier.facing };
+  match.handleFireAt("usa", {
+    type: "fire_at_command",
+    matchId: MATCH_ID,
+    requestId: "panic-face-only",
+    teamId: TEAM_USA,
+    soldierId: 1,
+    targetTeamId: -1,
+    targetSoldierId: -1,
+    targetCell: vec(soldier.gridPosition.x + 1, soldier.gridPosition.y),
+    scope: MOVE_SCOPE_SINGLE,
+  });
+  const reply = ws.sent.find((m) => m.requestId === "panic-face-only");
+  assert.ok(reply);
+  assert.equal(reply.type, "fire_at_result");
+  assert.equal(reply.success, false);
+  assert.match(String(reply.statusMessage), /panicked/i);
+  assert.deepEqual(soldier.facing, facingBefore);
+  assert.equal(soldier.isEngaged(), false);
+});
+
+test("server keeps Duke firing range and lethality tuning", () => {
+  assert.equal(effectiveWeaponRange(getWeapon("m1_garand")), 40);
+  assert.equal(LETHALITY_MULTIPLIER, 0.6);
 });
 
 test("forfeit after the reconnect window still reports the player who dropped", () => {

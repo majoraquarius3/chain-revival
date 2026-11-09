@@ -1,0 +1,38 @@
+[
+  {
+    "name": "stress_decay_standing_half_scan",
+    "map": {
+      "width": 10,
+      "height": 10,
+      "objects": []
+    },
+    "soldiers": [],
+    "query": {
+      "kind": "stress_decay",
+      "stress": 50,
+      "prone": false,
+      "deltaSec": 0.5
+    },
+    "expect": {
+      "stress": 44.8163
+    }
+  },
+  {
+    "name": "stress_decay_prone_half_scan",
+    "map": {
+      "width": 10,
+      "height": 10,
+      "objects": []
+    },
+    "soldiers": [],
+    "query": {
+      "kind": "stress_decay",
+      "stress": 50,
+      "prone": true,
+      "deltaSec": 0.5
+    },
+    "expect": {
+      "stress": 42.0794
+    }
+  }
+]

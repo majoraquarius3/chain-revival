@@ -57,15 +57,18 @@ func _ready() -> void:
 
 
 func _add_lan_button() -> void:
-	var dev_box := get_node_or_null("Center/Panel/Margin/VBox/DevBox") as VBoxContainer
-	if dev_box == null:
+	var vbox := get_node_or_null("Center/Panel/Margin/VBox") as VBoxContainer
+	if vbox == null:
 		return
 	var lan_btn := Button.new()
 	lan_btn.text = "LAN Multiplayer"
 	lan_btn.custom_minimum_size = Vector2(400, 36)
 	lan_btn.add_theme_font_size_override("font_size", 16)
 	lan_btn.pressed.connect(_on_lan_multiplayer_pressed)
-	dev_box.add_child(lan_btn)
+	vbox.add_child(lan_btn)
+	var dev_box := get_node_or_null("Center/Panel/Margin/VBox/DevBox") as Control
+	if dev_box != null:
+		vbox.move_child(lan_btn, dev_box.get_index())
 
 
 func _add_leaderboard_button() -> void:
