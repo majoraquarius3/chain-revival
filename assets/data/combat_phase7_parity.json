@@ -1,0 +1,27 @@
+{
+  "base_accuracy": [
+    {"weapon_id": "m1_garand", "range": 1, "expected": 1.0},
+    {"weapon_id": "m1_garand", "range": 11, "expected": 0.09015777610818933},
+    {"weapon_id": "m1_garand", "range": 20, "expected": 0.015},
+    {"weapon_id": "thompson", "range": 5, "expected": 1.0},
+    {"weapon_id": "thompson", "range": 12, "expected": 0.024112654320987654},
+    {"weapon_id": "bar", "range": 10, "expected": 0.48}
+  ],
+  "stress_accuracy": [
+    {"stress": 0, "range": 6, "aim_factor": 0.5, "expected": 1.0},
+    {"stress": 25, "range": 6, "aim_factor": 0.5, "expected": 0.95625},
+    {"stress": 50, "range": 6, "aim_factor": 0.5, "expected": 0.9125},
+    {"stress": 100, "range": 6, "aim_factor": 0.5, "expected": 0.825},
+    {"stress": 50, "range": 5, "aim_factor": 1.5, "expected": 0.7374999999999999},
+    {"stress": 50, "range": 6, "aim_factor": 2.0, "expected": 0.6499999999999999}
+  ],
+  "suppression_gain": [
+    {"stress_factor": 0.25, "limit": 25, "range": 5, "expected": 71.42857142857143},
+    {"stress_factor": 2.0, "limit": 13, "range": 5, "expected": 228.57142857142858},
+    {"stress_factor": 0.6, "limit": 25, "range": 5, "expected": 171.42857142857144}
+  ],
+  "decay": [
+    {"stress": 50, "prone": false, "delta_sec": 0.5, "expected": 44.81625606993765},
+    {"stress": 50, "prone": true, "delta_sec": 0.5, "expected": 42.07936812419478}
+  ]
+}

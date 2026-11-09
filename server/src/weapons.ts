@@ -5,6 +5,7 @@ export const WEAPON_SMG = 1;
 export const WEAPON_LMG = 2;
 
 export const ENGAGEMENT_RANGE_TILES = 40;
+export const CONE_RANGE_BONUS_TILES = 8;
 
 export interface WeaponData {
   weaponId: string;
@@ -21,6 +22,8 @@ export interface WeaponData {
   rangeConstCub: number;
   rangeConstSqr: number;
   rangeConstPent: number;
+  suppressionGenerated: number;
+  stressLimitTiles: number;
   stressAimFactor: number;
 }
 
@@ -40,6 +43,8 @@ function rifle(id: string, name: string): WeaponData {
     rangeConstCub: 1,
     rangeConstSqr: 0,
     rangeConstPent: 0,
+    suppressionGenerated: 0.25,
+    stressLimitTiles: 25,
     stressAimFactor: 0.5,
   };
 }
@@ -60,6 +65,8 @@ function smg(id: string, name: string, rounds: number): WeaponData {
     rangeConstCub: 0,
     rangeConstSqr: 0,
     rangeConstPent: 0.02,
+    suppressionGenerated: 2.0,
+    stressLimitTiles: 13,
     stressAimFactor: 1.5,
   };
 }
@@ -81,6 +88,8 @@ function lmg(id: string, name: string, rounds: number, bulletUnused = 6): Weapon
     rangeConstCub: 1,
     rangeConstSqr: 0,
     rangeConstPent: 0,
+    suppressionGenerated: 0.6,
+    stressLimitTiles: 25,
     stressAimFactor: 2.0,
   };
 }
@@ -119,7 +128,7 @@ export function hitNumerator(weapon: WeaponData, aimTime: number): number {
 
 export function effectiveWeaponRange(weapon: WeaponData | null): number {
   if (weapon === null) {
-    return ENGAGEMENT_RANGE_TILES;
+    return ENGAGEMENT_RANGE_TILES + CONE_RANGE_BONUS_TILES;
   }
-  return Math.max(ENGAGEMENT_RANGE_TILES, weapon.rangeTiles);
+  return Math.max(ENGAGEMENT_RANGE_TILES, weapon.rangeTiles) + CONE_RANGE_BONUS_TILES;
 }

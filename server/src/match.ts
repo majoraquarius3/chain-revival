@@ -42,6 +42,7 @@ import {
   type TargetSyncPayload,
   type Vec2i,
   type CombatShotsPayload,
+  type CombatStatusPayload,
   type VisibilityUpdatePayload,
 } from "./types";
 
@@ -455,6 +456,16 @@ export class LocalMatch {
           simMsec: this.clock.getTicksMsec(),
           tickId,
           shots: combat.shots,
+        };
+        this.broadcast(payload);
+      }
+      if (combat.statusUpdates.length > 0) {
+        const payload: CombatStatusPayload = {
+          type: "combat_status",
+          matchId: this.matchId,
+          simMsec: this.clock.getTicksMsec(),
+          tickId,
+          updates: combat.statusUpdates,
         };
         this.broadcast(payload);
       }

@@ -110,6 +110,16 @@ static func apply_snapshot(game_state: GameStateClass, snapshot: Dictionary) -> 
 			)
 		if entry.has("lastShotMsec") or entry.has("last_shot_msec"):
 			soldier.last_shot_msec = int(entry.get("lastShotMsec", entry.get("last_shot_msec", 0)))
+		if entry.has("stress"):
+			soldier.stress = float(entry.get("stress", 0.0))
+		if entry.has("stunnedUntilMsec") or entry.has("stunned_until_msec"):
+			soldier.stunned_until_msec = int(
+				entry.get("stunnedUntilMsec", entry.get("stunned_until_msec", 0))
+			)
+		if entry.has("standOnStunRecovery") or entry.has("stand_on_stun_recovery"):
+			soldier.stand_on_stun_recovery = bool(
+				entry.get("standOnStunRecovery", entry.get("stand_on_stun_recovery", false))
+			)
 		if entry.has("deathSpriteFamily") or entry.has("death_sprite_family"):
 			soldier.death_sprite_family = str(
 				entry.get("deathSpriteFamily", entry.get("death_sprite_family", ""))
@@ -155,6 +165,52 @@ static func apply_combat_shots(game_state: GameStateClass, payload: Dictionary) 
 			target.mark_killed()
 			_clear_engagements_on_dead(game_state, target)
 	return result
+
+
+static func apply_combat_status(game_state: GameStateClass, payload: Dictionary) -> void:
+	if game_state == null:
+		return
+	apply_sim_time(payload)
+	for raw in payload.get("updates", []):
+		if not raw is Dictionary:
+			continue
+		var update: Dictionary = raw
+		var soldier: SoldierState = game_state.get_soldier(
+			int(update.get("teamId", update.get("team_id", -1))),
+			int(update.get("soldierId", update.get("soldier_id", -1))),
+		)
+		if soldier == null:
+			continue
+		soldier.stress = float(update.get("stress", soldier.stress))
+		soldier.received_suppression_this_tick = bool(
+			update.get("receivedSuppression", update.get("received_suppression", false))
+		)
+		soldier.stunned_until_msec = int(
+			update.get("stunnedUntilMsec", update.get("stunned_until_msec", soldier.stunned_until_msec))
+		)
+		soldier.stand_on_stun_recovery = bool(
+			update.get("standOnStunRecovery", update.get("stand_on_stun_recovery", soldier.stand_on_stun_recovery))
+		)
+		soldier.position_state = int(
+			update.get("positionState", update.get("position_state", soldier.position_state))
+		)
+		soldier.movement_mode = int(
+			update.get("movementMode", update.get("movement_mode", soldier.movement_mode))
+		)
+		soldier.engaged_target_team_id = int(
+			update.get("engagedTargetTeamId", update.get("engaged_target_team_id", soldier.engaged_target_team_id))
+		)
+		soldier.engaged_target_soldier_id = int(
+			update.get("engagedTargetSoldierId", update.get("engaged_target_soldier_id", soldier.engaged_target_soldier_id))
+		)
+		soldier.sustained_fire = bool(
+			update.get("sustainedFire", update.get("sustained_fire", soldier.sustained_fire))
+		)
+		if bool(update.get("isStunned", update.get("is_stunned", false))):
+			soldier.clear_pending_position()
+			soldier.reset_fire_prep()
+		if not bool(update.get("isMoving", update.get("is_moving", soldier.is_moving))):
+			soldier.clear_path()
 
 
 static func _clear_engagements_on_dead(game_state: GameStateClass, dead: SoldierState) -> void:

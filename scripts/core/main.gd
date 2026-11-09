@@ -3038,6 +3038,8 @@ func _ensure_multiplayer_result_signals() -> void:
 		NetworkClient.target_sync_received.connect(_on_network_target_sync)
 	if not NetworkClient.combat_shots_received.is_connected(_on_network_combat_shots):
 		NetworkClient.combat_shots_received.connect(_on_network_combat_shots)
+	if not NetworkClient.combat_status_received.is_connected(_on_network_combat_status):
+		NetworkClient.combat_status_received.connect(_on_network_combat_status)
 
 
 func _apply_network_face_result(result: ActionResultClass) -> void:
@@ -3107,6 +3109,20 @@ func _on_network_combat_shots(payload: Dictionary) -> void:
 	_present_action_result(result)
 	_invalidate_fog_cache()
 	_refresh_enemy_spotting_visuals()
+	_refresh_command_bar()
+
+
+func _on_network_combat_status(payload: Dictionary) -> void:
+	AuthoritativeSyncClass.apply_combat_status(_game_state, payload)
+	for raw in payload.get("updates", []):
+		if not raw is Dictionary:
+			continue
+		var update: Dictionary = raw
+		_sync_soldier_view(
+			int(update.get("teamId", update.get("team_id", -1))),
+			int(update.get("soldierId", update.get("soldier_id", -1))),
+			false,
+		)
 	_refresh_command_bar()
 
 

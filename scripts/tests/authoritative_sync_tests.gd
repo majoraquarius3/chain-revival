@@ -23,6 +23,7 @@ func _ready() -> void:
 	_test_move_result_stance_and_mode()
 	_test_snapshot_restores_facing_stance_mode()
 	_test_fire_control_and_target_both_replicas()
+	_test_combat_status_both_replicas()
 	print("")
 	print("Authoritative sync tests: %d passed, %d failed" % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
@@ -227,4 +228,41 @@ func _test_fire_control_and_target_both_replicas() -> void:
 		and b.fire_control_state == FireControlState.HOLD_FIRE
 		and not a.is_engaged()
 		and not b.is_engaged(),
+	)
+
+
+func _test_combat_status_both_replicas() -> void:
+	var usa := _make_game_state()
+	var germany := _make_game_state()
+	var payload := {
+		"simMsec": 1000,
+		"updates": [
+			{
+				"teamId": Team.GERMANY,
+				"soldierId": 1,
+				"stress": 71.428571,
+				"receivedSuppression": true,
+				"stunnedUntilMsec": 5000,
+				"standOnStunRecovery": true,
+				"positionState": PositionStateClass.DOWN,
+				"movementMode": MovementModeClass.CRAWL,
+				"isMoving": false,
+				"engagedTargetTeamId": -1,
+				"engagedTargetSoldierId": -1,
+				"sustainedFire": false,
+			},
+		],
+	}
+	AuthoritativeSyncClass.apply_combat_status(usa, payload)
+	AuthoritativeSyncClass.apply_combat_status(germany, payload)
+	var a: SoldierState = usa.get_soldier(Team.GERMANY, 1)
+	var b: SoldierState = germany.get_soldier(Team.GERMANY, 1)
+	_assert(
+		"combat status both replicas",
+		is_equal_approx(a.stress, b.stress)
+		and a.received_suppression_this_tick
+		and b.stunned_until_msec == 5000
+		and a.position_state == PositionStateClass.DOWN
+		and b.movement_mode == MovementModeClass.CRAWL
+		and a.stand_on_stun_recovery,
 	)
