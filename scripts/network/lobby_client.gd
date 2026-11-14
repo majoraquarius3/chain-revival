@@ -52,6 +52,9 @@ func _ready() -> void:
 func list_lobbies() -> void:
 	if not _check_auth():
 		return
+	if _is_dev_lobby_mode():
+		_http_list.request("%s/dev/lobbies" % _dev_http_base())
+		return
 	var url := "%s/rest/v1/lobbies?or=(status.eq.waiting,status.eq.in_progress)&order=room_number.asc.nullslast" % SupabaseAuth.SUPABASE_URL
 	_http_list.request(url, _bearer_headers(), HTTPClient.METHOD_GET)
 
@@ -67,6 +70,16 @@ func create_lobby(match_name: String, server_url: String = "", map_id: String = 
 	_pending_room_number = room_number
 	_pending_match_length_sec = match_length_sec
 	_pending_host_regiment_id = host_regiment_id
+	if _is_dev_lobby_mode():
+		var payload := _pending_create_payload()
+		var url := "%s/dev/lobbies" % _dev_http_base()
+		_http_create.request(
+			url,
+			PackedStringArray(["Content-Type: application/json"]),
+			HTTPClient.METHOD_POST,
+			JSON.stringify(payload)
+		)
+		return
 	# Delete any stale lobbies by this host first.
 	var url := "%s/rest/v1/lobbies?host_id=eq.%s" % [SupabaseAuth.SUPABASE_URL, SupabaseAuth.user_id]
 	_http_cleanup.request(url, _bearer_headers(), HTTPClient.METHOD_DELETE)
@@ -75,6 +88,16 @@ func create_lobby(match_name: String, server_url: String = "", map_id: String = 
 ## Join an existing lobby via atomic RPC (increments players, sets in_progress when full).
 func join_lobby(lobby_id: String) -> void:
 	if not _check_auth():
+		return
+	if _is_dev_lobby_mode():
+		var dev_body := JSON.stringify({"player_id": SupabaseAuth.user_id})
+		var dev_url := "%s/dev/lobbies/%s/join" % [_dev_http_base(), lobby_id.uri_encode()]
+		_http_join.request(
+			dev_url,
+			PackedStringArray(["Content-Type: application/json"]),
+			HTTPClient.METHOD_POST,
+			dev_body
+		)
 		return
 	var body := JSON.stringify({"p_lobby_id": lobby_id})
 	var headers := _bearer_headers()
@@ -87,6 +110,15 @@ func update_lobby_status(lobby_id: String, new_status: String) -> void:
 	if not _check_auth():
 		return
 	var body := JSON.stringify({"status": new_status})
+	if _is_dev_lobby_mode():
+		var dev_url := "%s/dev/lobbies/%s" % [_dev_http_base(), lobby_id.uri_encode()]
+		_http_update.request(
+			dev_url,
+			PackedStringArray(["Content-Type: application/json"]),
+			HTTPClient.METHOD_PATCH,
+			body
+		)
+		return
 	var headers := _bearer_headers_prefer_return()
 	var url := "%s/rest/v1/lobbies?id=eq.%s" % [SupabaseAuth.SUPABASE_URL, lobby_id]
 	_http_update.request(url, headers, HTTPClient.METHOD_PATCH, body)
@@ -96,6 +128,14 @@ func update_lobby_status(lobby_id: String, new_status: String) -> void:
 func delete_lobby(lobby_id: String) -> void:
 	if not _check_auth():
 		return
+	if _is_dev_lobby_mode():
+		var dev_url := "%s/dev/lobbies/%s?player_id=%s" % [
+			_dev_http_base(),
+			lobby_id.uri_encode(),
+			SupabaseAuth.user_id.uri_encode(),
+		]
+		_http_delete.request(dev_url, PackedStringArray(), HTTPClient.METHOD_DELETE)
+		return
 	var url := "%s/rest/v1/lobbies?id=eq.%s" % [SupabaseAuth.SUPABASE_URL, lobby_id]
 	_http_delete.request(url, _bearer_headers(), HTTPClient.METHOD_DELETE)
 
@@ -103,6 +143,8 @@ func delete_lobby(lobby_id: String) -> void:
 ## Send a chat message to the global lobby chat.
 func send_chat_message(msg: String) -> void:
 	if not _check_auth():
+		return
+	if _is_dev_lobby_mode():
 		return
 	var body := JSON.stringify({
 		"user_id": SupabaseAuth.user_id,
@@ -117,6 +159,17 @@ func send_chat_message(msg: String) -> void:
 func fetch_player_profile(user_id: String) -> void:
 	if not _check_auth():
 		return
+	if _is_dev_lobby_mode():
+		player_profile_fetched.emit({
+			"id": user_id,
+			"display_name": user_id.trim_prefix("local:"),
+			"rank": 0,
+			"prestige_points": 0,
+			"games_played": 0,
+			"games_won": 0,
+			"total_kills": 0,
+		})
+		return
 	var url := "%s/rest/v1/player_profiles?id=eq.%s&select=id,display_name,rank,prestige_points,games_played,games_won,total_kills,regiment_id,regiments(name,tag)" % [SupabaseAuth.SUPABASE_URL, user_id]
 	_http_profile.request(url, _bearer_headers(), HTTPClient.METHOD_GET)
 
@@ -124,6 +177,9 @@ func fetch_player_profile(user_id: String) -> void:
 ## Fetch the last 50 chat messages. The UI deduplicates by ID.
 func fetch_chat_messages(_since_iso: String = "") -> void:
 	if not _check_auth():
+		return
+	if _is_dev_lobby_mode():
+		chat_messages_received.emit([])
 		return
 	var url := "%s/rest/v1/chat_messages?order=created_at.asc&limit=50" % SupabaseAuth.SUPABASE_URL
 	_http_chat_fetch.request(url, _bearer_headers(), HTTPClient.METHOD_GET)
@@ -174,9 +230,21 @@ const RANK_LABELS := ["PVT", "PFC", "CPL", "SGT", "SSG", "SFC", "MSG", "2LT", "1
 
 func _on_cleanup_response(_result: int, _response_code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	# Old lobbies cleaned up (or none existed). Now create the new one.
+	var payload := _pending_create_payload()
+	var body := JSON.stringify(payload)
+	var headers := _bearer_headers_prefer_return()
+	var url := "%s/rest/v1/lobbies" % SupabaseAuth.SUPABASE_URL
+	_http_create.request(url, headers, HTTPClient.METHOD_POST, body)
+
+
+func _pending_create_payload() -> Dictionary:
 	var rank_idx: int = clampi(SupabaseAuth.rank, 0, RANK_LABELS.size() - 1)
 	var tag_prefix := "[%s] " % SupabaseAuth.regiment_tag if SupabaseAuth.regiment_tag != "" else ""
-	var ranked_name := "%s%s %s" % [tag_prefix, RANK_LABELS[rank_idx], SupabaseAuth.display_name]
+	var ranked_name := (
+		SupabaseAuth.display_name
+		if _is_dev_lobby_mode()
+		else "%s%s %s" % [tag_prefix, RANK_LABELS[rank_idx], SupabaseAuth.display_name]
+	)
 	var payload := {
 		"host_id": SupabaseAuth.user_id,
 		"host_display_name": ranked_name,
@@ -196,10 +264,7 @@ func _on_cleanup_response(_result: int, _response_code: int, _headers: PackedStr
 		payload["match_length_sec"] = _pending_match_length_sec
 	if not _pending_host_regiment_id.is_empty():
 		payload["host_regiment_id"] = _pending_host_regiment_id
-	var body := JSON.stringify(payload)
-	var headers := _bearer_headers_prefer_return()
-	var url := "%s/rest/v1/lobbies" % SupabaseAuth.SUPABASE_URL
-	_http_create.request(url, headers, HTTPClient.METHOD_POST, body)
+	return payload
 
 
 func _on_update_response(_result: int, _response_code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
@@ -230,10 +295,25 @@ func _on_chat_fetch_response(result: int, response_code: int, _headers: PackedSt
 # ─────────────────────────────────────────────────────────────────────────
 
 func _check_auth() -> bool:
+	if _is_dev_lobby_mode():
+		return true
 	if not SupabaseAuth.is_signed_in:
 		lobby_error.emit("Not signed in")
 		return false
 	return true
+
+
+func _is_dev_lobby_mode() -> bool:
+	return SupabaseAuth.is_local_guest_mode
+
+
+func _dev_http_base() -> String:
+	var url := NetworkClient.server_url.strip_edges().trim_suffix("/")
+	if url.begins_with("wss://"):
+		return "https://%s" % url.substr("wss://".length())
+	if url.begins_with("ws://"):
+		return "http://%s" % url.substr("ws://".length())
+	return url
 
 
 func _bearer_headers() -> PackedStringArray:

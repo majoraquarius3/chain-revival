@@ -453,10 +453,19 @@ func _on_disconnected() -> void:
 
 
 func _send_hello() -> void:
-	var hello := {"type": "hello", "clientName": CLIENT_NAME}
+	var client_name := (
+		SupabaseAuth.local_guest_name
+		if SupabaseAuth.is_local_guest_mode
+		else CLIENT_NAME
+	)
+	var hello := {"type": "hello", "clientName": client_name}
 	# Attach the Supabase auth token when the user is signed in so the
 	# server can identify them.  LAN play works fine without it.
-	if SupabaseAuth.is_signed_in and not SupabaseAuth.access_token.is_empty():
+	if (
+		not SupabaseAuth.is_local_guest_mode
+		and SupabaseAuth.is_signed_in
+		and not SupabaseAuth.access_token.is_empty()
+	):
 		hello["authToken"] = SupabaseAuth.access_token
 		if SupabaseAuth.is_admin:
 			hello["isAdmin"] = true

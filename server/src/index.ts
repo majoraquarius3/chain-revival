@@ -1,5 +1,9 @@
 import { WebSocketServer, WebSocket, type RawData } from "ws";
-import { createServer } from "node:http";
+import {
+  createServer,
+  type IncomingMessage as HttpIncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve, extname, join, sep } from "node:path";
@@ -49,6 +53,14 @@ import {
   END_CAUSE_EXTERMINATION,
   END_CAUSE_FORFEIT,
 } from "./scenario_rules";
+import {
+  createDevLobby,
+  joinDevLobby,
+  leaveDevLobby,
+  listDevLobbies,
+  updateDevLobbyStatus,
+  type DevLobby,
+} from "./dev_lobbies";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 let match = new LocalMatch();
@@ -773,8 +785,107 @@ if (hasBuilds) {
   console.log(`Serving game builds from ${BUILDS_DIR}`);
 }
 
+function isLoopbackRequest(req: HttpIncomingMessage): boolean {
+  const address = req.socket.remoteAddress ?? "";
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+async function readJsonBody(req: HttpIncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 64 * 1024) throw new Error("Request body too large");
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return {};
+  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("JSON object required");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function sendHttpJson(res: ServerResponse, status: number, value: unknown): void {
+  res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+  res.end(JSON.stringify(value));
+}
+
+async function serveDevLobbies(
+  req: HttpIncomingMessage,
+  res: ServerResponse,
+  parsedUrl: URL,
+): Promise<boolean> {
+  if (!parsedUrl.pathname.startsWith("/dev/lobbies")) return false;
+  if (!isLoopbackRequest(req)) {
+    res.writeHead(404);
+    res.end("Not Found");
+    return true;
+  }
+
+  try {
+    if (parsedUrl.pathname === "/dev/lobbies" && req.method === "GET") {
+      sendHttpJson(res, 200, listDevLobbies());
+      return true;
+    }
+
+    if (parsedUrl.pathname === "/dev/lobbies" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const lobby = createDevLobby({
+        host_id: String(body.host_id ?? ""),
+        host_display_name: String(body.host_display_name ?? ""),
+        match_name: String(body.match_name ?? ""),
+        server_url: String(body.server_url ?? ""),
+        map_id: String(body.map_id ?? "ff_farm"),
+        team_size: Number(body.team_size ?? 1),
+        room_number: Number(body.room_number ?? 0),
+        match_length_sec: Number(body.match_length_sec ?? 900),
+      });
+      sendHttpJson(res, 201, [lobby]);
+      return true;
+    }
+
+    const joinMatch = parsedUrl.pathname.match(/^\/dev\/lobbies\/([^/]+)\/join$/);
+    if (joinMatch && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const lobby = joinDevLobby(decodeURIComponent(joinMatch[1]), String(body.player_id ?? ""));
+      sendHttpJson(res, 200, [lobby]);
+      return true;
+    }
+
+    const lobbyMatch = parsedUrl.pathname.match(/^\/dev\/lobbies\/([^/]+)$/);
+    if (lobbyMatch && req.method === "DELETE") {
+      const playerId = parsedUrl.searchParams.get("player_id") ?? "";
+      leaveDevLobby(decodeURIComponent(lobbyMatch[1]), playerId);
+      res.writeHead(204, { "Cache-Control": "no-store" });
+      res.end();
+      return true;
+    }
+    if (lobbyMatch && req.method === "PATCH") {
+      const body = await readJsonBody(req);
+      const status = String(body.status ?? "") as DevLobby["status"];
+      if (!["waiting", "in_progress", "finished"].includes(status)) {
+        throw new Error("Invalid lobby status");
+      }
+      sendHttpJson(res, 200, [updateDevLobbyStatus(decodeURIComponent(lobbyMatch[1]), status)]);
+      return true;
+    }
+
+    res.writeHead(405, { Allow: "GET, POST, PATCH, DELETE" });
+    res.end("Method Not Allowed");
+    return true;
+  } catch (error) {
+    sendHttpJson(res, 409, { error: error instanceof Error ? error.message : "Dev lobby request failed" });
+    return true;
+  }
+}
+
 async function serveStatic(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
   const url = req.url ?? "/";
+  const parsedUrl = new URL(url, "http://localhost");
+
+  if (await serveDevLobbies(req, res, parsedUrl)) return;
 
   if (url === "/health") {
     res.writeHead(200, { "Content-Type": "text/plain" });

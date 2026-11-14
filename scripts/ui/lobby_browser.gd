@@ -1018,10 +1018,13 @@ func _on_lobby_deleted() -> void:
 
 func _on_cancel_hosted() -> void:
 	if not _joined_lobby_id.is_empty():
+		if SupabaseAuth.is_local_guest_mode:
+			_lobby_client.delete_lobby(_joined_lobby_id)
 		_joined_lobby_id = ""
 		_active_room_number = 0
 		_set_status("Left the room.", Color.WHITE)
-		_lobby_client.list_lobbies()
+		if not SupabaseAuth.is_local_guest_mode:
+			_lobby_client.list_lobbies()
 		return
 	if _hosted_lobby_id.is_empty():
 		return

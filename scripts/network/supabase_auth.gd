@@ -40,6 +40,9 @@ var is_admin: bool = false
 var is_moderator: bool = false
 var is_banned: bool = false
 var ban_reason: String = ""
+## Explicit development-only mode. It never loads or mutates the saved Supabase session.
+var is_local_guest_mode: bool = false
+var local_guest_name: String = ""
 
 ## ── Internals ───────────────────────────────────────────────────────────
 var _http_sign_in: HTTPRequest
@@ -55,6 +58,7 @@ const SESSION_SAVE_PATH := "user://supabase_session.json"
 
 
 func _ready() -> void:
+	_configure_local_guest_mode()
 	_http_sign_in = _make_http("_on_sign_in_response")
 	_http_sign_up = _make_http("_on_sign_up_response")
 	_http_refresh = _make_http("_on_refresh_response")
@@ -66,6 +70,14 @@ func _ready() -> void:
 	_refresh_timer.timeout.connect(_on_refresh_timer)
 	add_child(_refresh_timer)
 
+	if is_local_guest_mode:
+		user_id = "local:%s" % local_guest_name
+		display_name = local_guest_name
+		GameLog.log_system(
+			"[SupabaseAuth] Local guest mode (%s) — saved session and Supabase are disabled."
+			% local_guest_name
+		)
+		return
 	if SUPABASE_URL == "" or SUPABASE_ANON_KEY == "":
 		push_warning("[SupabaseAuth] Credentials not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in supabase_auth.gd")
 	else:
@@ -327,7 +339,50 @@ func _delete_saved_session() -> void:
 # ─────────────────────────────────────────────────────────────────────────
 
 func _check_config() -> bool:
-	return SUPABASE_URL != "" and SUPABASE_ANON_KEY != ""
+	return not is_local_guest_mode and SUPABASE_URL != "" and SUPABASE_ANON_KEY != ""
+
+
+func _configure_local_guest_mode() -> void:
+	var args := OS.get_cmdline_args() + OS.get_cmdline_user_args()
+	var allow_supabase_local := false
+	for arg in args:
+		if arg == "--local-guest":
+			is_local_guest_mode = true
+		elif arg.begins_with("--local-guest="):
+			is_local_guest_mode = true
+			local_guest_name = arg.substr("--local-guest=".length()).strip_edges()
+		elif arg == "--allow-supabase-local":
+			allow_supabase_local = true
+	if not is_local_guest_mode and not allow_supabase_local:
+		var local_server_url := _local_server_override(args)
+		is_local_guest_mode = _is_loopback_server_url(local_server_url)
+	if is_local_guest_mode and local_guest_name.is_empty():
+		local_guest_name = "LocalGuest-%d" % OS.get_process_id()
+
+
+func _local_server_override(args: Array[String]) -> String:
+	for arg in args:
+		if arg.begins_with("--server="):
+			return arg.substr("--server=".length()).strip_edges()
+	if not FileAccess.file_exists("res://dev_server.txt"):
+		return ""
+	for line in FileAccess.get_file_as_string("res://dev_server.txt").split("\n"):
+		var trimmed := line.strip_edges()
+		if not trimmed.is_empty() and not trimmed.begins_with("#"):
+			return trimmed
+	return ""
+
+
+func _is_loopback_server_url(url: String) -> bool:
+	var normalized := url.to_lower().trim_suffix("/")
+	return (
+		normalized == "ws://localhost"
+		or normalized.begins_with("ws://localhost:")
+		or normalized == "ws://127.0.0.1"
+		or normalized.begins_with("ws://127.0.0.1:")
+		or normalized == "ws://[::1]"
+		or normalized.begins_with("ws://[::1]:")
+	)
 
 
 func _auth_headers() -> PackedStringArray:

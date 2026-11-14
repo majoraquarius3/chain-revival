@@ -47,7 +47,6 @@ func _ready() -> void:
 		_apply_survival_playtest_menu()
 	_add_auth_ui()
 	_hide_dev_tools_unless_signed_in()
-	_add_lan_button()
 	_add_leaderboard_button()
 	_add_version_label()
 	_add_settings_button()
@@ -55,23 +54,9 @@ func _ready() -> void:
 	_show_first_launch_hint()
 	_check_for_updates()
 
-
-func _add_lan_button() -> void:
-	var vbox := get_node_or_null("Center/Panel/Margin/VBox") as VBoxContainer
-	if vbox == null:
-		return
-	var lan_btn := Button.new()
-	lan_btn.text = "LAN Multiplayer"
-	lan_btn.custom_minimum_size = Vector2(400, 36)
-	lan_btn.add_theme_font_size_override("font_size", 16)
-	lan_btn.pressed.connect(_on_lan_multiplayer_pressed)
-	vbox.add_child(lan_btn)
-	var dev_box := get_node_or_null("Center/Panel/Margin/VBox/DevBox") as Control
-	if dev_box != null:
-		vbox.move_child(lan_btn, dev_box.get_index())
-
-
 func _add_leaderboard_button() -> void:
+	if SupabaseAuth.is_local_guest_mode:
+		return
 	var vbox := get_node_or_null("Center/Panel/Margin/VBox") as VBoxContainer
 	if vbox == null:
 		return
@@ -117,7 +102,12 @@ func _add_auth_ui() -> void:
 	auth_button.add_theme_font_size_override("font_size", 14)
 	auth_box.add_child(auth_button)
 
-	if SupabaseAuth.is_signed_in:
+	if SupabaseAuth.is_local_guest_mode:
+		_sign_in_label.text = "Local guest: %s" % SupabaseAuth.local_guest_name
+		auth_button.text = "Supabase Disabled"
+		auth_button.disabled = true
+		_multiplayer_button.text = "Dev Multiplayer"
+	elif SupabaseAuth.is_signed_in:
 		if SupabaseAuth.is_banned:
 			_sign_in_label.text = "BANNED: %s" % SupabaseAuth.display_name
 			_sign_in_label.add_theme_color_override("font_color", Color(0.9, 0.3, 0.3))
@@ -182,6 +172,9 @@ func _on_single_player_pressed() -> void:
 func _on_multiplayer_pressed() -> void:
 	if BuildConfig.is_survival_playtest():
 		return
+	if SupabaseAuth.is_local_guest_mode:
+		get_tree().change_scene_to_file(LOBBY_BROWSER_SCENE)
+		return
 	if SupabaseAuth.is_signed_in:
 		if SupabaseAuth.is_banned:
 			await _recheck_ban_and_proceed(LOBBY_BROWSER_SCENE)
@@ -189,20 +182,6 @@ func _on_multiplayer_pressed() -> void:
 		get_tree().change_scene_to_file(LOBBY_BROWSER_SCENE)
 	else:
 		get_tree().change_scene_to_file(AUTH_SCREEN_SCENE)
-
-
-func _on_lan_multiplayer_pressed() -> void:
-	if BuildConfig.is_survival_playtest():
-		return
-	_set_buttons_enabled(false)
-	GameModeManager.set_mode(GameMode.LOCAL_MULTIPLAYER)
-	var connected := await NetworkClient.connect_and_wait()
-	if not connected:
-		GameLog.log_system("[ModeSelect] Local multiplayer server is not running.")
-		_set_buttons_enabled(true)
-		return
-	get_tree().change_scene_to_file(SIDE_SELECT_SCENE)
-
 
 func _open_match_setup(game_mode_kind: int) -> void:
 	if BuildConfig.is_survival_playtest():
@@ -899,6 +878,8 @@ func _show_first_launch_hint() -> void:
 
 
 func _check_for_updates() -> void:
+	if SupabaseAuth.is_local_guest_mode:
+		return
 	_updater = AutoUpdaterClass.new()
 	add_child(_updater)
 	_updater.update_check_complete.connect(_on_update_check_complete)
